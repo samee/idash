@@ -30,7 +30,7 @@ void vcfSkipLine(FILE* fp)
   do
   { if(!fgets(buf,sizeof(buf),fp)) break;
     len=strlen(buf);
-  } while(!feof(fp) && buf[len-2]!='\n');
+  } while(!feof(fp) && buf[len-1]!='\n');
 }
 int fpeek(FILE* fp)
 { int c = fgetc(fp);
@@ -61,7 +61,7 @@ void vcfParseLine(FILE* fp,unsigned char* chrom,long long* pos,char alt[])
   char line[FILE_MAX_LINE_LEN];
   if(!fgets(line,sizeof(line),fp)) file_parse_error_exit();
   int len=strlen(line),ichrom;
-  if(line[len-2]!='\n') file_parse_error_exit();
+  if(line[len-1]!='\n') file_parse_error_exit();
   if(sscanf(line,"%d %lld %*s %*s %s",&ichrom,pos,alt)<3)
     file_parse_error_exit();
   *chrom=ichrom;
@@ -84,9 +84,9 @@ bool loadVcfFile(HashType** phashes,size_t* psz,const char* filename)
   unsigned char dtChrom;
   long long dtPos;
   char dtAlt[FILE_MAX_LINE_LEN];
-  while(!feof(fp))
+  while(fpeek(fp),!feof(fp))
   { if(vcfSkipCommentLine(fp)) continue;
-    vcfParseLine(fp,&dtChrom,&dtPos,dtAlt); // ignores REF field //-
+    vcfParseLine(fp,&dtChrom,&dtPos,dtAlt); // ignores REF field
     vcfHashAndReset(hasher, &hashes[sz], dtChrom, dtPos, dtAlt);
     ++sz;
   }
@@ -115,10 +115,23 @@ void setupTcpConnection(ProtocolDesc* pd,
     }
 }
 
+void hexprint(FILE* fp,const char* s,size_t len)
+{
+  size_t i;
+  for(i=0;i<len;++i)
+    fprintf(fp,"%.02x ",0xff&s[i]);
+  fprintf(fp,"\n");
+}
+void debugPrintHashes(UnionCountIO* io)
+{
+  int i;
+  for(i=0;i<io->datasz;++i)
+    hexprint(stdout,io->data[i],sizeof(io->data[i]));
+}
 int main(int argc,char* argv[])
 {
   programName = argv[0];
-  if((argv[2][0]=='1' && argc!=4) || (argv[2][0]=='2' && argc!=5))
+  if(!(argv[2][0]=='1' && argc==4) && !(argv[2][0]=='2' && argc==5))
   { fprintf(stderr,"Usage: %s <input-vcf-file> 1 <port>, or\n"
                    "       %s <input-vcf-file> 2 <remote-addr> <port>\n",
                    programName,programName);
@@ -129,6 +142,7 @@ int main(int argc,char* argv[])
   { fprintf(stderr,"%s: could not load VCF file '%s'\n",programName,argv[3]);
     return 2;
   }
+  debugPrintHashes(&io);
   int party = (argv[2][0]=='1'?1:2);
   char *ra,*port;
   if(party==1) { ra=NULL; port=argv[3]; }
@@ -136,8 +150,7 @@ int main(int argc,char* argv[])
   ProtocolDesc pd;
   setupTcpConnection(&pd,ra,port);
   setCurrentParty(&pd,party);
-  // TODO print out hashes just to check sanity
-  execYaoProtocol(&pd,unionCount,&io); //-
+  //execYaoProtocol(&pd,unionCount,&io); //-
   printf("Result: %zd\n",io.unionCount);
   cleanupProtocol(&pd);
   return 0;
