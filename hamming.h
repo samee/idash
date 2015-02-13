@@ -15,6 +15,7 @@
 // Null terminator, and a newline preceding it, since we may use fgets()
 #define FILE_LINE_BUF_LEN (FILE_MAX_LINE_LEN+2)
 
+#define HASH_ALGO GCRY_MD_SHA1
 
 typedef char HashType[HASH_BYTES];
 

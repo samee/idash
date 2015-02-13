@@ -1,5 +1,7 @@
+#include<assert.h>
 #include<stdbool.h>
 #include<stdio.h>
+#include<string.h>
 #include<gcrypt.h>
 #include<obliv.h>
 #include<obliv_common.h>
@@ -35,6 +37,19 @@ bool vcfSkipCommentLine(FILE* fp)
   else return false;
 }
 
+void vcfHashAndReset(gcry_md_hd_t hasher,HashType* hashDest,
+                     unsigned char chrom,long long pos,const char* alt)
+{
+  size_t len = strlen(alt);
+  assert(len<FILE_MAX_LINE_LEN);
+  gcry_md_write(hasher,&chrom,sizeof(chrom));
+  gcry_md_write(hasher,&pos,sizeof(pos));
+  gcry_md_write(hasher,alt,len);
+  assert(sizeof(HashType)<=gcry_md_get_algo_dlen(HASH_ALGO));
+  memcpy(*hashDest,gcry_md_read(hasher,0),sizeof(HashType)); // truncation
+  gcry_md_reset(hasher);
+}
+
 bool loadVcfFile(HashType** phashes,size_t* psz,const char* filename)
 {
   HashType* hashes = malloc(MAX_HASHES*HASH_BYTES);
@@ -47,7 +62,7 @@ bool loadVcfFile(HashType** phashes,size_t* psz,const char* filename)
 
   gcryDefaultLibInit(); // I should probably expose/prefix this function
   gcry_md_hd_t hasher;
-  gcry_error_t gcry_err = gcry_md_open(&hasher,GCRY_MD_SHA1,0);
+  gcry_error_t gcry_err = gcry_md_open(&hasher,HASH_ALGO,0);
   if(!hasher) gcrypt_error_exit(gcry_err);
 
   sz=0;
@@ -57,7 +72,7 @@ bool loadVcfFile(HashType** phashes,size_t* psz,const char* filename)
   while(!feof(fp))
   { if(vcfSkipCommentLine(fp)) continue;
     vcfParseLine(fp,line,dtChrom,dtPos,dtAlt); // ignores REF field //-
-    vcfHashAndReset(hasher,hashes[sz], dtChrom, dtPos, dtAlt); //-
+    vcfHashAndReset(hasher, &hashes[sz], dtChrom, dtPos, dtAlt); //-
     ++sz;
   }
   gcry_md_close(hasher);
@@ -106,6 +121,7 @@ int main(int argc,char* argv[])
   ProtocolDesc pd;
   setupTcpConnection(&pd,ra,port);
   setCurrentParty(&pd,party);
+  // TODO print out hashes just to check sanity
   execYaoProtocol(&pd,unionCount,&io); //-
   printf("Result: %zd\n",io.unionCount);
   cleanupProtocol(&pd);
