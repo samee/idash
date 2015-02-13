@@ -18,13 +18,19 @@ void gcrypt_error_exit(gcry_error_t err)
   fprintf(stderr,"%s: Libgcrypt error: %s\n",programName,gcry_strerror(err));
   exit(-1);
 }
+#define file_parse_error_exit() file_parse_error_exit_fun(__LINE__)
+void file_parse_error_exit_fun(int line)
+{
+  fprintf(stderr,"Problem parsing file at " __FILE__ ":%d\n",line);
+  exit(3);
+}
 void vcfSkipLine(FILE* fp)
 { char buf[FILE_LINE_BUF_LEN];
   int len;
   do
   { if(!fgets(buf,sizeof(buf),fp)) break;
     len=strlen(buf);
-  } while(!feof(fp) && buf[len-1]!='\n');
+  } while(!feof(fp) && buf[len-2]!='\n');
 }
 int fpeek(FILE* fp)
 { int c = fgetc(fp);
@@ -50,11 +56,20 @@ void vcfHashAndReset(gcry_md_hd_t hasher,HashType* hashDest,
   gcry_md_reset(hasher);
 }
 
+void vcfParseLine(FILE* fp,unsigned char* chrom,long long* pos,char alt[])
+{
+  char line[FILE_MAX_LINE_LEN];
+  if(!fgets(line,sizeof(line),fp)) file_parse_error_exit();
+  int len=strlen(line),ichrom;
+  if(line[len-2]!='\n') file_parse_error_exit();
+  if(sscanf(line,"%d %lld %*s %*s %s",&ichrom,pos,alt)<3)
+    file_parse_error_exit();
+  *chrom=ichrom;
+}
 bool loadVcfFile(HashType** phashes,size_t* psz,const char* filename)
 {
   HashType* hashes = malloc(MAX_HASHES*HASH_BYTES);
   int i,sz=0;
-  char line[FILE_LINE_BUF_LEN];
   if(!hashes) out_of_memory_exit();
 
   FILE* fp = fopen(filename,"r");
@@ -71,8 +86,8 @@ bool loadVcfFile(HashType** phashes,size_t* psz,const char* filename)
   char dtAlt[FILE_MAX_LINE_LEN];
   while(!feof(fp))
   { if(vcfSkipCommentLine(fp)) continue;
-    vcfParseLine(fp,line,dtChrom,dtPos,dtAlt); // ignores REF field //-
-    vcfHashAndReset(hasher, &hashes[sz], dtChrom, dtPos, dtAlt); //-
+    vcfParseLine(fp,&dtChrom,&dtPos,dtAlt); // ignores REF field //-
+    vcfHashAndReset(hasher, &hashes[sz], dtChrom, dtPos, dtAlt);
     ++sz;
   }
   gcry_md_close(hasher);
