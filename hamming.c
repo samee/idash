@@ -77,7 +77,7 @@ void vcfParseLine(FILE* fp,unsigned char* chrom,long long* pos,char alt[])
   fileLoc++;
   int len=strlen(line),ichrom;
   if(line[len-1]!='\n') file_parse_error_exit();
-  if(sscanf(line,"%3s %lld %*s %*s %s",&schrom,pos,alt)<3)
+  if(sscanf(line,"%3s %lld %*s %*s %s",schrom,pos,alt)<3)
     file_parse_error_exit();
   ichrom=vcfParseChrom(schrom);
   if(ichrom<0) file_parse_error_exit();
