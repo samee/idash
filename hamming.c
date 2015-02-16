@@ -8,6 +8,7 @@
 #include"hamming.h"
 
 char* programName;
+int fileLoc;
 void out_of_memory_exit()
 {
   fprintf(stderr,"%s: out of memory\n",programName);
@@ -21,7 +22,8 @@ void gcrypt_error_exit(gcry_error_t err)
 #define file_parse_error_exit() file_parse_error_exit_fun(__LINE__)
 void file_parse_error_exit_fun(int line)
 {
-  fprintf(stderr,"Problem parsing file at " __FILE__ ":%d\n",line);
+  fprintf(stderr,"Problem parsing file at " __FILE__ ":%d, input line: %d\n",
+      line,fileLoc);
   exit(3);
 }
 void vcfSkipLine(FILE* fp)
@@ -29,6 +31,7 @@ void vcfSkipLine(FILE* fp)
   int len;
   do
   { if(!fgets(buf,sizeof(buf),fp)) break;
+    fileLoc++;
     len=strlen(buf);
   } while(!feof(fp) && buf[len-1]!='\n');
 }
@@ -60,6 +63,7 @@ void vcfParseLine(FILE* fp,unsigned char* chrom,long long* pos,char alt[])
 {
   char line[FILE_MAX_LINE_LEN];
   if(!fgets(line,sizeof(line),fp)) file_parse_error_exit();
+  fileLoc++;
   int len=strlen(line),ichrom;
   if(line[len-1]!='\n') file_parse_error_exit();
   if(sscanf(line,"%d %lld %*s %*s %s",&ichrom,pos,alt)<3)
@@ -84,6 +88,7 @@ bool loadVcfFile(HashType** phashes,size_t* psz,const char* filename)
   unsigned char dtChrom;
   long long dtPos;
   char dtAlt[FILE_MAX_LINE_LEN];
+  fileLoc=1; // I hate globals
   while(fpeek(fp),!feof(fp))
   { if(vcfSkipCommentLine(fp)) continue;
     vcfParseLine(fp,&dtChrom,&dtPos,dtAlt); // ignores REF field
@@ -142,7 +147,7 @@ int main(int argc,char* argv[])
   { fprintf(stderr,"%s: could not load VCF file '%s'\n",programName,argv[3]);
     return 2;
   }
-  debugPrintHashes(&io);
+  //debugPrintHashes(&io);
   int party = (argv[2][0]=='1'?1:2);
   char *ra,*port;
   if(party==1) { ra=NULL; port=argv[3]; }
@@ -150,7 +155,7 @@ int main(int argc,char* argv[])
   ProtocolDesc pd;
   setupTcpConnection(&pd,ra,port);
   setCurrentParty(&pd,party);
-  //execYaoProtocol(&pd,unionCount,&io); //-
+  execYaoProtocol(&pd,unionCount,&io); //-
   printf("Result: %zd\n",io.unionCount);
   cleanupProtocol(&pd);
   return 0;

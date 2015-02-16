@@ -1,0 +1,193 @@
+#include<assert.h>
+#include<limits.h>
+#include<stdbool.h>
+#include<stdio.h>
+#include<stdlib.h>
+
+#include<bcrandom.h>
+#include<obliv.oh>
+
+#include"hamming.h"
+#include"waksman.h"
+
+typedef obliv char OHashType[HASH_BYTES];
+void feedOHashTypeArr(OHashType* dest,size_t n,HashType* src,int party)
+{
+  size_t i,j,p=ocCurrentParty();
+  OblivInputs* specs = malloc(sizeof(OblivInputs)*HASH_BYTES*n);
+
+  for(i=0;i<n;++i) for(j=0;j<HASH_BYTES;++j)
+    setupOblivChar(&specs[i*HASH_BYTES+j],&(dest[i][j]),
+        (party==ocCurrentParty()?src[i][j]:0));
+  feedOblivInputs(specs,HASH_BYTES*n,party);
+  free(specs);
+}
+// ------------------ Batcher sorting -----------------------------------------
+
+// TODO time with and without obliv functions. You can use non-obliv to build
+//   obliv versions quite easily
+void batcherSwap(unsigned char* data,size_t n,size_t w,
+                 void (*cmpswap)(void*,void*,void*),void* arg)
+{
+  size_t i;
+  for(i=0;i+1<n;i+=2) cmpswap(data+w*i,data+w*(i+1),arg);
+}
+void batcherMerge(unsigned char* data,size_t n1,size_t n2,size_t w,
+                  void (*cmpswap)(void*,void*,void*),void* arg)
+{
+  if(n1+n2<=1) return;
+  int odd = n1%2;
+  batcherMerge(data,(n1+1)/2,(n2+!odd)/2,w*2,cmpswap,arg);
+  batcherMerge(data+w,n1/2,  (n2+odd)/2,  w*2,cmpswap,arg);
+  batcherSwap(data+w*!odd,n1+n2-!odd,w,cmpswap,arg);
+}
+
+// w is width in bits
+void batcherSort(void* data,size_t n,size_t w,
+                 void (*cmpswap)(void*,void*,void*),void* arg)
+{
+  if(n<=1) return;
+  batcherSort(data,n/2,w,cmpswap,arg);
+  batcherSort((unsigned char*)data+w*(n/2),(n+1)/2,w,cmpswap,arg);
+  batcherMerge(data,n/2,(n+1)/2,w,cmpswap,arg);
+}
+
+// -------------------- PSI main ---------------------------------------------
+
+int hashTypeCompare(const void* va, const void* vb) 
+{ unsigned long long *a = va, *b = vb;
+  if(*a<*b) return -1;
+  else if(*a>*b) return 1;
+  else return 0;
+}
+
+int cmpZeroLarge(const void* ap,const void* bp)
+{
+  int a=*(int*)ap,b=*(int*)bp;
+  if(a==0) a=INT_MAX; else if(a>0) a--;
+  if(b==0) b=INT_MAX; else if(b>0) b--;
+  return a-b;
+}
+
+void swapHashType(OHashType* aa,OHashType* bb) obliv
+{
+  ~obliv(en) {
+    for(int i=0;i<HASH_BYTES;++i)
+    {
+      obliv char *a = (*aa)+i, *b = (*bb)+i;
+      obliv char t = 0;
+      obliv if(en) t=*a^*b;
+      *a^=t;
+      *b^=t;
+    }
+  }
+}
+void cmpswapHashType(void* va,void* vb,void* arg)
+{
+  OHashType *a=va,*b=vb;
+  obliv if(*(obliv unsigned long long*)a>*(obliv unsigned long long*)b) 
+    swapHashType(a,b);
+}
+
+void feedOblivBoolArr(obliv bool* dest,size_t n,bool* src,int srcParty)
+{
+  size_t i,p=ocCurrentParty();
+  for(i=0;i<n;++i) dest[i]=feedOblivBool(p==srcParty?src[i]:false,srcParty);
+}
+void feedOblivIntArr(obliv int* dest,size_t n,int* src,int srcParty)
+{
+  size_t i,p=ocCurrentParty();
+  OblivInputs* spec = malloc(sizeof(OblivInputs)*n);
+  for(i=0;i<n;++i) setupOblivInt(spec+i,dest+i,(p==srcParty?src[i]:0));
+  feedOblivInputs(spec,n,srcParty);
+    //dest[i]=feedOblivInt(p==srcParty?src[i]:0,srcParty); FIXME What..?!
+  free(spec);
+}
+void revealOblivIntArr(int* dest,size_t n,obliv int* src,int destParty)
+{
+  size_t i,p=ocCurrentParty();
+  for(i=0;i<n;++i) revealOblivInt(dest+i,src[i],destParty);
+}
+
+/*
+void randomShuffleControl(obliv bool* doSwap,size_t n,int party)
+{
+  size_t sc = waksmanSwapCount(n);
+  if(ocCurrentParty()==party)
+  { BCipherRandomGen *gen=newBCipherRandomGen();
+    unsigned *perm=malloc(sizeof(unsigned)*n);
+    bcRandomPermutation(gen,perm,n);
+    bool *c=malloc(sizeof(bool)*sc);
+    waksmanSwitches(perm,n,c);
+    free(perm);
+    releaseBCipherRandomGen(gen);
+    feedOblivBoolArr(doSwap,sc,c,party);
+    free(c);
+  }else feedOblivBoolArr(doSwap,sc,NULL,party); // both parties do this
+}
+*/
+
+size_t minZ(size_t a,size_t b) { return a<b?a:b; }
+
+// does not support overlapping ranges
+static void memswap(void* d1, void* d2,size_t n)
+{
+  char *c1=d1, *c2=d2, t;
+  size_t i;
+  for(i=0;i<n;++i) { t=c1[i]; c1[i]=c2[i]; c2[i]=t; }
+}
+
+// Runs qsort, and then "removes" duplicate data by moving them to the end
+// Returns the number of elements in the resulting sequence (or equivalently,
+//   the index at which "removed" data starts
+size_t qsortUniq(void* data,size_t n,size_t w,
+                 int (*cmp)(const void *,const void *))
+{
+  unsigned char *cdata=data;
+  size_t i,j;
+  qsort(data,n,w,cmp);
+  for(i=j=1;j<n;j++) if(cmp(cdata+(i-1)*w,cdata+j*w)!=0)
+  { if(i<j) memswap(cdata+i*w,cdata+j*w,w);
+    i++;
+  }
+  return i;
+}
+obliv bool hashTypeEqual(OHashType* a,OHashType* b)
+{
+  obliv bool eq=true;
+  for(int i=0;i<HASH_BYTES;++i)
+    eq = eq&((*a)[i]==(*b)[i]);
+  return eq;
+}
+// returns the number of elements in intersection
+// Input elements with value 0 are assumed to be 'empty' values, and are
+// never reported as part of the intersection
+// input pointer is not const, since it will get sorted before being input
+//   into the protocol.
+void unionCount(void* varg)
+{
+  UnionCountIO *arg=varg;
+  HashType *input=arg->data;
+  size_t iN=arg->datasz;
+  size_t a,b;
+  unsigned i;
+  obliv int count=0;
+  assert(sizeof(unsigned long long)==HASH_BYTES);
+  iN = qsortUniq(input,iN,sizeof(*input),hashTypeCompare);
+  assert(sizeof(size_t) == sizeof(long));
+  a = ocBroadcastLong(iN,1);
+  b = ocBroadcastLong(iN,2);
+
+  OHashType *arr=calloc(a+b,sizeof(OHashType));
+  feedOHashTypeArr(arr,a,input,1);
+  feedOHashTypeArr(arr+a,b,input,2);
+  batcherMerge(arr,a,b,sizeof(*arr),cmpswapHashType,NULL);
+
+  for(i=1;i<a+b;++i) 
+    count+=hashTypeEqual(arr[i-1],arr[i]);
+  
+  int oN;
+  revealOblivInt(&oN,count,0);
+  arg->unionCount=a+b-oN;
+}
+

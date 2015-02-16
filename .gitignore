@@ -1,3 +1,6 @@
 **/*.swp
+**/*.oc.cil.c
+**/*.oc.cil.i
+**/*.oc.i
 idash_common
 hamming
