@@ -58,16 +58,29 @@ void vcfHashAndReset(gcry_md_hd_t hasher,HashType* hashDest,
   memcpy(*hashDest,gcry_md_read(hasher,0),sizeof(HashType)); // truncation
   gcry_md_reset(hasher);
 }
-
+// Assumes s is a null-terminated string of length at most 3
+// Returns -1 on parse error
+int vcfParseChrom(const char* s)
+{
+  int rv;
+  switch(s[0])
+  { case 'X': return 112;
+    case 'Y': return 113;
+    case 'M': return 111;
+    default: if(sscanf(s,"%d",&rv)==1) return rv; else return -1;
+  }
+}
 void vcfParseLine(FILE* fp,unsigned char* chrom,long long* pos,char alt[])
 {
-  char line[FILE_MAX_LINE_LEN];
+  char line[FILE_MAX_LINE_LEN],schrom[4];
   if(!fgets(line,sizeof(line),fp)) file_parse_error_exit();
   fileLoc++;
   int len=strlen(line),ichrom;
   if(line[len-1]!='\n') file_parse_error_exit();
-  if(sscanf(line,"%d %lld %*s %*s %s",&ichrom,pos,alt)<3)
+  if(sscanf(line,"%3s %lld %*s %*s %s",&schrom,pos,alt)<3)
     file_parse_error_exit();
+  ichrom=vcfParseChrom(schrom);
+  if(ichrom<0) file_parse_error_exit();
   *chrom=ichrom;
 }
 bool loadVcfFile(HashType** phashes,size_t* psz,const char* filename)

@@ -8,7 +8,6 @@
 #include<obliv.oh>
 
 #include"hamming.h"
-#include"waksman.h"
 
 typedef obliv char OHashType[HASH_BYTES];
 void feedOHashTypeArr(OHashType* dest,size_t n,HashType* src,int party)
