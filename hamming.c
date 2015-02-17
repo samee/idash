@@ -70,10 +70,11 @@ int vcfParseChrom(const char* s)
     default: if(sscanf(s,"%d",&rv)==1) return rv; else return -1;
   }
 }
-void vcfParseLine(FILE* fp,unsigned char* chrom,long long* pos,char alt[])
+bool vcfParseLine(FILE* fp,unsigned char* chrom,long long* pos,char alt[])
 {
   char line[FILE_MAX_LINE_LEN],schrom[4];
   if(!fgets(line,sizeof(line),fp)) file_parse_error_exit();
+  if(strstr(line,"INS") || strstr(line,"DEL")) return false;
   fileLoc++;
   int len=strlen(line),ichrom;
   if(line[len-1]!='\n') file_parse_error_exit();
@@ -82,20 +83,25 @@ void vcfParseLine(FILE* fp,unsigned char* chrom,long long* pos,char alt[])
   ichrom=vcfParseChrom(schrom);
   if(ichrom<0) file_parse_error_exit();
   *chrom=ichrom;
+  return true;
 }
-bool loadVcfFile(HashType** phashes,size_t* psz,const char* filename)
+bool loadVcfFile(HashType** phashes,HashType** plocs,
+                 size_t* psz,const char* filename)
 {
   HashType* hashes = malloc(MAX_HASHES*HASH_BYTES);
+  HashType* locs   = malloc(MAX_HASHES*HASH_BYTES);
   int i,sz=0;
   if(!hashes) out_of_memory_exit();
 
   FILE* fp = fopen(filename,"r");
-  if(!fp) { free(hashes); return false; }
+  if(!fp) { free(hashes); free(locs); return false; }
 
   gcryDefaultLibInit(); // I should probably expose/prefix this function
-  gcry_md_hd_t hasher;
+  gcry_md_hd_t hasher,hasherLoc;
   gcry_error_t gcry_err = gcry_md_open(&hasher,HASH_ALGO,0);
   if(!hasher) gcrypt_error_exit(gcry_err);
+  gcry_err = gcry_md_open(&hasherLoc,HASH_ALGO,0);
+  if(!hasherLoc) gcrypt_error_exit(gcry_err);
 
   sz=0;
   unsigned char dtChrom;
@@ -104,14 +110,17 @@ bool loadVcfFile(HashType** phashes,size_t* psz,const char* filename)
   fileLoc=1; // I hate globals
   while(fpeek(fp),!feof(fp))
   { if(vcfSkipCommentLine(fp)) continue;
-    vcfParseLine(fp,&dtChrom,&dtPos,dtAlt); // ignores REF field
+    if(!vcfParseLine(fp,&dtChrom,&dtPos,dtAlt)) continue;
     vcfHashAndReset(hasher, &hashes[sz], dtChrom, dtPos, dtAlt);
+    vcfHashAndReset(hasherLoc,&locs[sz], dtChrom, dtPos, "");
     ++sz;
   }
   gcry_md_close(hasher);
+  gcry_md_close(hasherLoc);
   fclose(fp);
   hashes = realloc(hashes,sz*HASH_BYTES); // free unused memory
-  *phashes = hashes; *psz = sz;
+  locs   = realloc(locs  ,sz*HASH_BYTES);
+  *phashes = hashes; *plocs = locs; *psz = sz;
   return true;
 }
 void freeFileData(HashType* hashes,int sz) { free(hashes); }
@@ -156,7 +165,7 @@ int main(int argc,char* argv[])
     return 1;
   }
   UnionCountIO io;
-  if(!loadVcfFile(&io.data,&io.datasz,argv[1])) 
+  if(!loadVcfFile(&io.data,&io.locs,&io.datasz,argv[1]))
   { fprintf(stderr,"%s: could not load VCF file '%s'\n",programName,argv[3]);
     return 2;
   }
@@ -168,7 +177,7 @@ int main(int argc,char* argv[])
   ProtocolDesc pd;
   setupTcpConnection(&pd,ra,port);
   setCurrentParty(&pd,party);
-  execYaoProtocol(&pd,unionCount,&io); //-
+  execYaoProtocol(&pd,strangeCount,&io);
   printf("Result: %zd\n",io.unionCount);
   cleanupProtocol(&pd);
   return 0;

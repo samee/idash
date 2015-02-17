@@ -19,10 +19,10 @@
 
 typedef char HashType[HASH_BYTES];
 
-void unionCount(void* arg);
+void strangeCount(void* arg);
 
 typedef struct
-{ HashType* data;
+{ HashType *data,*locs;
   size_t datasz;
   size_t unionCount; // result
 } UnionCountIO;

@@ -163,16 +163,18 @@ obliv bool hashTypeEqual(OHashType* a,OHashType* b)
 // never reported as part of the intersection
 // input pointer is not const, since it will get sorted before being input
 //   into the protocol.
-void unionCount(void* varg)
+void strangeCount(void* varg)
 {
   UnionCountIO *arg=varg;
-  HashType *input=arg->data;
-  size_t iN=arg->datasz;
+  HashType *input=arg->data, *loc = arg->locs;
+  size_t iN,iN2;
   size_t a,b;
   unsigned i;
-  obliv int count=0;
+  obliv int count=0,countLoc=0;
   assert(sizeof(unsigned long long)==HASH_BYTES);
-  iN = qsortUniq(input,iN,sizeof(*input),hashTypeCompare);
+  iN  = qsortUniq(input,arg->datasz,sizeof(*input),hashTypeCompare);
+  iN2 = qsortUniq(  loc,arg->datasz,sizeof(*input),hashTypeCompare);
+  assert(iN==iN2);
   assert(sizeof(size_t) == sizeof(long));
   a = ocBroadcastLong(iN,1);
   b = ocBroadcastLong(iN,2);
@@ -184,9 +186,17 @@ void unionCount(void* varg)
 
   for(i=1;i<a+b;++i) 
     count+=hashTypeEqual(arr[i-1],arr[i]);
-  
+
+  feedOHashTypeArr(arr,a,loc,1);
+  feedOHashTypeArr(arr+a,b,loc,2);
+  batcherMerge(arr,a,b,sizeof(*arr),cmpswapHashType,NULL);
+
+  for(i=1;i<a+b;++i)
+    countLoc+=hashTypeEqual(arr[i-1],arr[i]);
+
   int oN;
-  revealOblivInt(&oN,count,0);
+  revealOblivInt(&oN,count+countLoc,0);
   arg->unionCount=a+b-oN;
+  free(arr);
 }
 
