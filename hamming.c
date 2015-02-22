@@ -6,6 +6,7 @@
 #include<obliv.h>
 #include<obliv_common.h>
 #include"hamming.h"
+#include"util.h"
 
 char* programName;
 int fileLoc;
@@ -124,23 +125,6 @@ bool loadVcfFile(HashType** phashes,HashType** plocs,
   return true;
 }
 void freeFileData(HashType* hashes,int sz) { free(hashes); }
-
-void setupTcpConnection(ProtocolDesc* pd,
-                        const char* remote_host,
-                        const char* port)
-{
-  if(remote_host==NULL)
-  { if(protocolAcceptTcp2P(pd,port)!=0)
-    { fprintf(stderr,"TCP accept failed\n");
-      exit(-1);
-    }
-  }
-  else 
-    if(protocolConnectTcp2P(pd,remote_host,port)!=0) 
-    { fprintf(stderr,"TCP connect failed\n");
-      exit(-1);
-    }
-}
 
 void hexprint(FILE* fp,const char* s,size_t len)
 {

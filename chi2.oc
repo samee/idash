@@ -1,0 +1,20 @@
+#include<assert.h>
+#include<string.h>
+#include"chi2.h"
+
+void chi2_file(void* vargs)
+{
+  ProtocolArgs* args = vargs;
+  FileDetails *fcase=&args->fcase, *fctrl=&args->fctrl;
+  while(1)
+  {
+    LocSum lss = nextRecord(fcase), lst = nextRecord(fctrl);
+    if(feof(fcase->fp)&&feof(fctrl->fp)) break;
+    if(feof(fcase->fp)||feof(fctrl->fp))
+    { fprintf(stderr,"Files are of unequal length\n");
+      return;
+    }
+    assert(strcmp(lss.loc,lst.loc)==0);
+    printf("%s: %d %d\n",lss.loc,lss.x+lst.x,lss.x+lst.x+lss.y+lst.y);
+  }
+}
