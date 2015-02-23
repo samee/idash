@@ -52,7 +52,7 @@ LocSum nextRecord(FileDetails* args)
     sum[baseInd(alleles[1])]++;
   }
   i=0;
-  for(;i<4;++i) if(sum[i]) { rv.x=sum[i]; break; }
+  for(;i<4;++i) if(sum[i]) { rv.x=sum[i]; i++; break; }
   for(;i<4;++i) if(sum[i]) { rv.y=sum[i]; break; }
   return rv;
 }

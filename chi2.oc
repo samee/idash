@@ -2,6 +2,13 @@
 #include<string.h>
 #include"chi2.h"
 
+// Have to make feed versions of these functions more tolerable. API change?
+int broadcastSum(int x)
+{ int a = ocBroadcastInt(x,1);
+  int b = ocBroadcastInt(x,2);
+  return a+b;
+}
+
 void chi2_file(void* vargs)
 {
   ProtocolArgs* args = vargs;
@@ -14,7 +21,26 @@ void chi2_file(void* vargs)
     { fprintf(stderr,"Files are of unequal length\n");
       return;
     }
+    // For now, assuming all subtotals are secret
+    // Even the sample counts. They can be input only once, though
+    // int is probably too wide. Pay attention to what is public.
+    obliv unsigned a1,a2,b1,b2,c1,c2,d1,d2;
+    obliv long long a,b,c,d,p,q,res;
+    OblivInputs oi[8];
     assert(strcmp(lss.loc,lst.loc)==0);
-    printf("%s: %d %d\n",lss.loc,lss.x+lst.x,lss.x+lst.x+lss.y+lst.y);
+    setupOblivInt(oi+0,&a1,lss.x); setupOblivInt(oi+4,&a2,lss.x);
+    setupOblivInt(oi+1,&b1,lss.y); setupOblivInt(oi+5,&b2,lss.y);
+    setupOblivInt(oi+2,&c1,lst.x); setupOblivInt(oi+6,&c2,lst.x);
+    setupOblivInt(oi+3,&d1,lst.y); setupOblivInt(oi+7,&d2,lst.y);
+    feedOblivInputs(oi,4,1);
+    feedOblivInputs(oi+4,4,2);
+    a=a1+a2; b=b1+b2; c=c1+c2; d=d1+d2;
+    p=(a*d-b*c); p*=p;
+    q=(a+b)*(c+d)*(a+c)*(b+d);
+    res=(p<<24)/q;
+    unsigned long long r;
+    int n = broadcastSum(lss.x+lss.y+lst.x+lst.y);
+    revealOblivLLong(&r,res,0);
+    printf("%s: %lf\n",lss.loc,r*1.0*n/(1<<24));
   }
 }
