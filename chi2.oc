@@ -1,5 +1,6 @@
 #include<assert.h>
 #include<string.h>
+#include<stdlib.h>
 #include"chi2.h"
 
 // Have to make feed versions of these functions more tolerable. API change?
@@ -9,38 +10,69 @@ int broadcastSum(int x)
   return a+b;
 }
 
+#define MAX_BATCH_SIZE 10000
+
+typedef struct InputSet
+{ obliv unsigned a1,a2,b1,b2,c1,c2,d1,d2;
+  int n;
+  char loc[LOC_NAME_MAX];
+} InputSet;
+
+static size_t
+batchNextRecord(InputSet* values,OblivInputs* oi1,OblivInputs* oi2,
+                FileDetails* fcase,FileDetails* fctrl)
+{
+  size_t count=0;
+  while(count<MAX_BATCH_SIZE)
+  {
+    LocSum lss = nextRecord(fcase), lst = nextRecord(fctrl);
+    if(feof(fcase->fp) && feof(fctrl->fp)) break;
+    if(feof(fcase->fp) || feof(fctrl->fp))
+    { fprintf(stderr,"Files are of unequal length\n");
+      exit(5);
+    }
+    assert(strcmp(lss.loc,lst.loc)==0);
+    strcpy(values[count].loc,lss.loc);
+    setupOblivInt(oi1+count*4+0,&values[count].a1,lss.x);
+    setupOblivInt(oi1+count*4+1,&values[count].b1,lss.y);
+    setupOblivInt(oi1+count*4+2,&values[count].c1,lst.x);
+    setupOblivInt(oi1+count*4+3,&values[count].d1,lst.y);
+    setupOblivInt(oi2+count*4+0,&values[count].a2,lss.x);
+    setupOblivInt(oi2+count*4+1,&values[count].b2,lss.y);
+    setupOblivInt(oi2+count*4+2,&values[count].c2,lst.x);
+    setupOblivInt(oi2+count*4+3,&values[count].d2,lst.y);
+    values[count].n = broadcastSum(lss.x+lss.y+lst.x+lst.y);
+    count++;
+  }
+  feedOblivInputs(oi1,4*count,1);
+  feedOblivInputs(oi2,4*count,2);
+  return count;
+}
+
 void chi2_file(void* vargs)
 {
   ProtocolArgs* args = vargs;
   FileDetails *fcase=&args->fcase, *fctrl=&args->fctrl;
+  InputSet *data = calloc(MAX_BATCH_SIZE,sizeof(InputSet));
+  OblivInputs *oi1 = malloc(MAX_BATCH_SIZE*4*sizeof(OblivInputs)),
+              *oi2 = malloc(MAX_BATCH_SIZE*4*sizeof(OblivInputs));
+  size_t count,i;
   while(1)
-  {
-    LocSum lss = nextRecord(fcase), lst = nextRecord(fctrl);
-    if(feof(fcase->fp)&&feof(fctrl->fp)) break;
-    if(feof(fcase->fp)||feof(fctrl->fp))
-    { fprintf(stderr,"Files are of unequal length\n");
-      return;
-    }
+  { count=batchNextRecord(data,oi1,oi2,fcase,fctrl);
     // For now, assuming all subtotals are secret
     // Even the sample counts. They can be input only once, though
     // int is probably too wide. Pay attention to what is public.
-    obliv unsigned a1,a2,b1,b2,c1,c2,d1,d2;
     obliv long long a,b,c,d,p,q,res;
-    OblivInputs oi[8];
-    assert(strcmp(lss.loc,lst.loc)==0);
-    setupOblivInt(oi+0,&a1,lss.x); setupOblivInt(oi+4,&a2,lss.x);
-    setupOblivInt(oi+1,&b1,lss.y); setupOblivInt(oi+5,&b2,lss.y);
-    setupOblivInt(oi+2,&c1,lst.x); setupOblivInt(oi+6,&c2,lst.x);
-    setupOblivInt(oi+3,&d1,lst.y); setupOblivInt(oi+7,&d2,lst.y);
-    feedOblivInputs(oi,4,1);
-    feedOblivInputs(oi+4,4,2);
-    a=a1+a2; b=b1+b2; c=c1+c2; d=d1+d2;
-    p=(a*d-b*c); p*=p;
-    q=(a+b)*(c+d)*(a+c)*(b+d);
-    res=(p<<24)/q;
-    unsigned long long r;
-    int n = broadcastSum(lss.x+lss.y+lst.x+lst.y);
-    revealOblivLLong(&r,res,0);
-    printf("%s: %lf\n",lss.loc,r*1.0*n/(1<<24));
+    for(i=0;i<count;++i)
+    { a=data[i].a1+data[i].a2; b=data[i].b1+data[i].b2;
+      c=data[i].c1+data[i].c2; d=data[i].d1+data[i].d2;
+      p=(a*d-b*c); p*=p;
+      q=(a+b)*(c+d)*(a+c)*(b+d);
+      res=(p<<24)/q;
+      unsigned long long r;
+      if(revealOblivLLong(&r,res,2))
+        printf("%s: %lf\n",data[i].loc,r*1.0*data[i].n/(1<<24));
+    }
+    if(count<MAX_BATCH_SIZE) break;
   }
 }
