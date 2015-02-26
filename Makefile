@@ -1,4 +1,4 @@
-all: hamming hamming2 chi2
+all: hamming chi2
 
 idash_common: idash_common.cpp
 	g++ -o $@ -O3 --std=c++11 $?
